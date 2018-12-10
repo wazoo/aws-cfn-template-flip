@@ -25,6 +25,12 @@ def input_json():
 
 
 @pytest.fixture
+def input_long_json():
+    with open("examples/test_long.json", "r") as f:
+        return f.read().strip()
+
+
+@pytest.fixture
 def input_yaml():
     with open("examples/test.yaml", "r") as f:
         return f.read().strip()
@@ -90,6 +96,24 @@ def test_to_json_with_json(input_json, parsed_json):
     actual = cfn_flip.to_json(input_json)
 
     assert load_json(actual) == parsed_json
+
+
+def test_to_yaml_with_long_json(input_long_json):
+    """
+    Test that to_yaml performs correctly
+    """
+
+    actual = cfn_flip.to_yaml(input_long_json)
+
+    # The result should not parse as json
+    with pytest.raises(ValueError):
+        load_json(actual)
+
+    parsed_actual = load_yaml(actual)
+
+    assert parsed_actual['TooShort'] == "foo\nbar\nbaz\nquuux"
+    assert 'WideText: >-' in actual
+    assert 'TooShort: "foo' in actual
 
 
 def test_to_yaml_with_json(input_json, parsed_yaml):
@@ -502,5 +526,39 @@ def test_get_dumper():
     When invoking get_dumper use clean_up & long_form
     :return: LongCleanDumper
     """
+
     resp = cfn_flip.get_dumper(clean_up=True, long_form=True)
     assert resp == cfn_flip.yaml_dumper.LongCleanDumper
+
+
+def test_quoted_digits():
+    """
+    Any value that is composed entirely of digits
+    should be quoted for safety.
+    CloudFormation is happy for numbers to appear as strings.
+    But the opposite (e.g. account numbers as numbers) can cause issues
+    See https://github.com/awslabs/aws-cfn-template-flip/issues/41
+    """
+
+    value = dump_json(ODict((
+        ("int", 123456),
+        ("float", 123.456),
+        ("oct", "0123456"),
+        ("bad-oct", "012345678"),
+        ("safe-oct", "0o123456"),
+        ("string", "abcdef"),
+    )))
+
+    expected = "\n".join((
+        "int: 123456",
+        "float: 123.456",
+        "oct: '0123456'",
+        "bad-oct: '012345678'",
+        "safe-oct: '0o123456'",
+        "string: abcdef",
+        ""
+    ))
+
+    actual = cfn_flip.to_yaml(value)
+
+    assert actual == expected
