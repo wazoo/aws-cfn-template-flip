@@ -11,6 +11,7 @@ or in the "license" file accompanying this file. This file is distributed on an 
 from .odict import ODict
 import six
 import yaml
+from yaml.constructor import ConstructorError
 
 TAG_MAP = "tag:yaml.org,2002:map"
 UNCONVERTED_SUFFIXES = ["Ref", "Condition"]
@@ -19,7 +20,8 @@ FN_PREFIX = "Fn::"
 
 class CfnYamlLoader(yaml.Loader):
     pass
-
+class DuplicateKeysError(ConstructorError):
+    pass
 
 def multi_constructor(loader, tag_suffix, node):
     """
@@ -75,7 +77,18 @@ def construct_mapping(self, node, deep=False):
 
     return mapping
 
+def no_duplicates_constructor(loader, node, deep=False):
+    """Check for duplicate keys."""
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        value = loader.construct_object(value_node, deep=deep)
+        if key in mapping:
+            raise DuplicateKeysError("Found duplicate key: '{}'".format(key))
+        mapping[key] = value
+    return loader.construct_mapping(node, deep)
 
 # Customise our loader
 CfnYamlLoader.add_constructor(TAG_MAP, construct_mapping)
+CfnYamlLoader.add_constructor(TAG_MAP, no_duplicates_constructor)
 CfnYamlLoader.add_multi_constructor("!", multi_constructor)
